@@ -1,11 +1,11 @@
 ---
 name: napcat-qq
-description: "为 openclaw 发送 QQ 消息时，强制使用 napcat 插件 API，并按照私聊/群聊规则生成与校验 sessionKey。适用于“发送QQ消息”“发群消息”“发QQ私聊”等请求。"
+description: "为 openclaw 发送 QQ 消息（含图片/媒体）时，强制使用 napcat 插件 API，并按照私聊/群聊规则生成与校验 sessionKey。适用于“发送QQ消息”“发群消息”“发QQ私聊”“发QQ图片”等请求。"
 ---
 
 # 目标
 
-确保 openclaw 发送 QQ 消息时只使用本插件的 API，并让 sessionKey 满足 napcat 插件要求。
+确保 openclaw 发送 QQ 消息（文本与媒体）时只使用本插件的 API，并让 sessionKey 满足 napcat 插件要求。
 
 # 工作流
 
@@ -17,7 +17,11 @@ description: "为 openclaw 发送 QQ 消息时，强制使用 napcat 插件 API�
    - 群聊优先使用 `target: group:<群号>` 或 `target: session:napcat:group:<群号>`。
    - 纯数字 `target` 会被当作私聊用户 ID，容易导致“无法获取用户信息”。
 4. 调用 message 工具时必须显式指定 `channel: "napcat"`，避免多通道场景下无法路由。
-5. 仅使用本插件的 API 完成发送，不要调用其他 QQ 发送途径。
+5. 媒体发送规则：
+   - 发送图片/媒体时，使用 `message` 工具并传 `mediaUrl`。
+   - 可选传 `text` 作为图片说明（caption）。
+   - `mediaUrl` 需为 NapCat 可访问地址（通常是 `http/https` 局域网可达 URL）。
+6. 仅使用本插件的 API 完成发送，不要调用其他 QQ 发送途径。
 
 # 交互规则
 
