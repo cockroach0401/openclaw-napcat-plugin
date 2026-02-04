@@ -24,6 +24,28 @@ function buildMediaProxyUrl(mediaUrl: string, config: any): string {
     return `${baseUrl}/napcat/media?${query.toString()}`;
 }
 
+function isAudioMedia(mediaUrl: string): boolean {
+    return /\.(wav|mp3|amr|silk|ogg|m4a|flac|aac)(?:\?.*)?$/i.test(mediaUrl);
+}
+
+function resolveVoiceMediaUrl(mediaUrl: string, config: any): string {
+    const trimmed = mediaUrl.trim();
+    if (!trimmed) return trimmed;
+    if (/^(https?:\/\/|file:\/\/)/i.test(trimmed) || trimmed.startsWith("/")) {
+        return trimmed;
+    }
+    const voiceBasePath = String(config.voiceBasePath || "").trim().replace(/\/+$/, "");
+    if (!voiceBasePath) return trimmed;
+    return `${voiceBasePath}/${trimmed.replace(/^\/+/, "")}`;
+}
+
+function buildNapCatMediaCq(mediaUrl: string, config: any): string {
+    const resolvedUrl = isAudioMedia(mediaUrl) ? resolveVoiceMediaUrl(mediaUrl, config) : mediaUrl;
+    const proxiedMediaUrl = buildMediaProxyUrl(resolvedUrl, config);
+    const type = isAudioMedia(resolvedUrl) ? "record" : "image";
+    return `[CQ:${type},file=${proxiedMediaUrl}]`;
+}
+
 function normalizeNapCatTarget(raw: string): string {
     const trimmed = raw.trim();
     if (!trimmed) return trimmed;
@@ -110,6 +132,12 @@ export const napcatPlugin = {
                 title: "Media Proxy Token",
                 description: "Optional token required by /napcat/media endpoint",
                 default: ""
+            },
+            voiceBasePath: {
+                type: "string",
+                title: "Voice Base Path",
+                description: "Base directory for relative audio files (e.g. /tmp/napcat-voice)",
+                default: ""
             }
         }
     },
@@ -195,9 +223,8 @@ export const napcatPlugin = {
             const endpoint = targetType === "group" ? "/send_group_msg" : "/send_private_msg";
 
             // Basic media support: try CQ image format, fallback to plain URL.
-            const proxiedMediaUrl = mediaUrl ? buildMediaProxyUrl(mediaUrl, config) : "";
             const mediaMessage = mediaUrl
-                ? `[CQ:image,file=${proxiedMediaUrl}]`
+                ? buildNapCatMediaCq(mediaUrl, config)
                 : "";
             const message = text
                 ? (mediaMessage ? `${text}\n${mediaMessage}` : text)

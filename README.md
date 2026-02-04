@@ -56,6 +56,7 @@ git clone https://github.com/ProperSAMA/openclaw-napcat-plugin.git /opt/homebrew
 | `mediaProxyEnabled` | boolean | 启用 `/napcat/media` 媒体代理（跨设备发图推荐） | `false` |
 | `publicBaseUrl` | string | OpenClaw 对 NapCat 可达的地址（如 `http://192.168.1.10:18789`） | `""` |
 | `mediaProxyToken` | string | 媒体代理可选访问令牌 | `""` |
+| `voiceBasePath` | string | 相对语音文件名的基础目录（例如 `/tmp/napcat-voice`） | `""` |
 
 #### 群消息配置示例
 
@@ -125,6 +126,12 @@ Http 客户端
 - 插件会把 `mediaUrl` 自动改写为 `http://<OpenClaw>/napcat/media?...` 供 NapCat 访问。
 - 若设置了 `mediaProxyToken`，NapCat 拉取时必须携带匹配令牌。
 - 请确保 NapCat 设备能访问 `publicBaseUrl` 对应地址与端口。
+
+## 语音发送（WAV）
+
+- 当 `mediaUrl` 是音频后缀（如 `.wav`）时，插件会自动按语音消息发送（`CQ:record`）。
+- 若 `mediaUrl` 是相对文件名（如 `test.wav`），会自动拼接 `voiceBasePath`（例如 `/tmp/napcat-voice/test.wav`）。
+- 开启媒体代理后，语音文件也会走 `/napcat/media`，适合 OpenClaw 与 NapCat 分机部署。
 
 ## Skill（napcat-qq）
 

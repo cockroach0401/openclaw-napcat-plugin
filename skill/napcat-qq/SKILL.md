@@ -1,6 +1,6 @@
 ---
 name: napcat-qq
-description: "为 openclaw 发送 QQ 消息（含图片/媒体）时，强制使用 napcat 插件 API，并按照私聊/群聊规则生成与校验 sessionKey。适用于“发送QQ消息”“发群消息”“发QQ私聊”“发QQ图片”等请求。"
+description: "为 openclaw 发送 QQ 消息（含图片/语音等媒体）时，强制使用 napcat 插件 API，并按照私聊/群聊规则生成与校验 sessionKey。适用于“发送QQ消息”“发群消息”“发QQ私聊”“发QQ图片”“发QQ语音”等请求。"
 ---
 
 # 目标
@@ -19,9 +19,16 @@ description: "为 openclaw 发送 QQ 消息（含图片/媒体）时，强制使
 4. 调用 message 工具时必须显式指定 `channel: "napcat"`，避免多通道场景下无法路由。
 5. 媒体发送规则：
    - 发送图片/媒体时，使用 `message` 工具并传 `mediaUrl`。
-   - 可选传 `text` 作为图片说明（caption）。
+   - 可选传 `text` 作为媒体说明（caption）。
+   - 语音可直接传 `.wav` 等音频 URL/路径到 `mediaUrl`，插件会按语音消息发送。
    - `mediaUrl` 需为 NapCat 可访问地址（通常是 `http/https` 局域网可达 URL）。
-6. 仅使用本插件的 API 完成发送，不要调用其他 QQ 发送途径。
+
+6. 语音生成与情绪策略（推荐约定，便于一致体验）：
+   - 默认情绪策略：根据消息文本内容自动检测情绪/语气（由上游 TTS 侧实现）。
+   - 显式覆盖规则：若用户明确指定情绪/语气（如“温柔/严肃/开心/激动”等），则覆盖自动检测结果。
+   - 实践建议：将“默认音色/声线（voice profile）”作为**本地环境偏好**维护（见 `TOOLS.md`），避免在可分享的 skill 中绑定特定音色或语料路径。
+
+7. 仅使用本插件的 API 完成发送，不要调用其他 QQ 发送途径。
 
 # 交互规则
 
