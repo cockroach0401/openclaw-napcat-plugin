@@ -13,7 +13,8 @@ description: "为 openclaw 发送 QQ 消息时，强制使用 napcat 插件 API�
 2. 校验并构造 sessionKey：
    - 私聊：`session:napcat:private:<QQ号>`
    - 群聊：`session:napcat:group:<群号>`
-3. 仅使用本插件的 API 完成发送，不要调用其他 QQ 发送途径。
+3. 调用 message 工具时必须显式指定 `channel: "napcat"`，避免多通道场景下无法路由。
+4. 仅使用本插件的 API 完成发送，不要调用其他 QQ 发送途径。
 
 # 交互规则
 
