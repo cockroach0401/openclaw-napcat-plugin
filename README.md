@@ -53,6 +53,9 @@ git clone https://github.com/ProperSAMA/openclaw-napcat-plugin.git /opt/homebrew
 | `allowUsers` | string[] | 允许接收消息的 QQ 用户 ID 列表 | `[]` (接收所有) |
 | `enableGroupMessages` | boolean | 是否处理群消息 | `false` |
 | `groupMentionOnly` | boolean | 群消息是否需要 @ 机器人 | `true` |
+| `mediaProxyEnabled` | boolean | 启用 `/napcat/media` 媒体代理（跨设备发图推荐） | `false` |
+| `publicBaseUrl` | string | OpenClaw 对 NapCat 可达的地址（如 `http://192.168.1.10:18789`） | `""` |
+| `mediaProxyToken` | string | 媒体代理可选访问令牌 | `""` |
 
 #### 群消息配置示例
 
@@ -101,6 +104,27 @@ Http 客户端
 - `session:napcat:group:<群号>`
 
 注意：纯数字 `target` 会被当作私聊用户 ID，群聊请务必加上 `group:` 或 `session:napcat:group:` 前缀。
+
+## 跨设备图片发送（临时媒体 HTTP 服务）
+
+当 OpenClaw 与 NapCat 在不同设备时，建议开启媒体代理，让 NapCat 通过 OpenClaw 提供的 HTTP 地址拉取图片：
+
+```json
+{
+  "channels": {
+    "napcat": {
+      "url": "http://192.168.1.20:3000",
+      "mediaProxyEnabled": true,
+      "publicBaseUrl": "http://192.168.1.10:18789",
+      "mediaProxyToken": "change-me"
+    }
+  }
+}
+```
+
+- 插件会把 `mediaUrl` 自动改写为 `http://<OpenClaw>/napcat/media?...` 供 NapCat 访问。
+- 若设置了 `mediaProxyToken`，NapCat 拉取时必须携带匹配令牌。
+- 请确保 NapCat 设备能访问 `publicBaseUrl` 对应地址与端口。
 
 ## Skill（napcat-qq）
 

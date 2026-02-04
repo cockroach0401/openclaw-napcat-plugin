@@ -13,6 +13,17 @@ async function sendToNapCat(url: string, payload: any) {
     return await res.json();
 }
 
+function buildMediaProxyUrl(mediaUrl: string, config: any): string {
+    const enabled = config.mediaProxyEnabled === true;
+    const baseUrl = String(config.publicBaseUrl || "").trim().replace(/\/+$/, "");
+    if (!enabled || !baseUrl) return mediaUrl;
+
+    const token = String(config.mediaProxyToken || "").trim();
+    const query = new URLSearchParams({ url: mediaUrl });
+    if (token) query.set("token", token);
+    return `${baseUrl}/napcat/media?${query.toString()}`;
+}
+
 export const napcatPlugin = {
     id: "napcat",
     meta: {
@@ -47,6 +58,24 @@ export const napcatPlugin = {
                 title: "Require Mention in Group",
                 description: "In group chats, only respond when the bot is mentioned (@)",
                 default: true
+            },
+            mediaProxyEnabled: {
+                type: "boolean",
+                title: "Enable Media Proxy",
+                description: "Expose /napcat/media endpoint so NapCat can fetch media from OpenClaw host",
+                default: false
+            },
+            publicBaseUrl: {
+                type: "string",
+                title: "OpenClaw Public Base URL",
+                description: "Base URL reachable by NapCat device, e.g. http://192.168.1.10:18789",
+                default: ""
+            },
+            mediaProxyToken: {
+                type: "string",
+                title: "Media Proxy Token",
+                description: "Optional token required by /napcat/media endpoint",
+                default: ""
             }
         }
     },
@@ -132,8 +161,9 @@ export const napcatPlugin = {
             const endpoint = targetType === "group" ? "/send_group_msg" : "/send_private_msg";
 
             // Basic media support: try CQ image format, fallback to plain URL.
+            const proxiedMediaUrl = mediaUrl ? buildMediaProxyUrl(mediaUrl, config) : "";
             const mediaMessage = mediaUrl
-                ? `[CQ:image,file=${mediaUrl}]`
+                ? `[CQ:image,file=${proxiedMediaUrl}]`
                 : "";
             const message = text
                 ? (mediaMessage ? `${text}\n${mediaMessage}` : text)
