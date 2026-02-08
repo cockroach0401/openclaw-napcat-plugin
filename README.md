@@ -5,6 +5,10 @@
 QQ 聊天通道插件 for OpenClaw，基于 NapCat (OneBot 11) 实现。
 部署完毕后，可通过 QQ 与 OpenClaw 对话、下达指令
 
+## 注意
+
+更新 Openclaw 后需要重新安装插件
+
 ## 功能特性
 
 - ✅ 接收私聊和群组消息
