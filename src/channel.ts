@@ -96,6 +96,12 @@ export const napcatPlugin = {
         type: "object",
         properties: {
             url: { type: "string", title: "NapCat HTTP URL", default: "http://127.0.0.1:3000" },
+            agentId: {
+                type: "string",
+                title: "Fixed Agent ID",
+                description: "Optional: force all NapCat inbound sessions to use this OpenClaw agent ID",
+                default: ""
+            },
             allowUsers: {
                 type: "array",
                 items: { type: "string" },

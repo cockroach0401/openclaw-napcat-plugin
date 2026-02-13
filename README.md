@@ -36,6 +36,7 @@ git clone https://github.com/ProperSAMA/openclaw-napcat-plugin.git /opt/homebrew
   "channels": {
     "napcat": {
       "url": "http://127.0.0.1:3000",
+      "agentId": "main",
       "allowUsers": ["你的QQ号"]
     }
   },
@@ -54,6 +55,7 @@ git clone https://github.com/ProperSAMA/openclaw-napcat-plugin.git /opt/homebrew
 | 配置项 | 类型 | 说明 | 默认值 |
 |--------|------|------|--------|
 | `url` | string | NapCat HTTP 服务地址 | `http://127.0.0.1:3000` |
+| `agentId` | string | 可选，固定将 NapCat 会话绑定到该 OpenClaw agent（如 `main`、`ops`） | `""`（空=按默认路由） |
 | `allowUsers` | string[] | 允许接收消息的 QQ 用户 ID 列表 | `[]` (接收所有) |
 | `enableGroupMessages` | boolean | 是否处理群消息 | `false` |
 | `groupMentionOnly` | boolean | 群消息是否需要 @ 机器人 | `true` |
@@ -69,6 +71,7 @@ git clone https://github.com/ProperSAMA/openclaw-napcat-plugin.git /opt/homebrew
   "channels": {
     "napcat": {
       "url": "http://127.0.0.1:3000",
+      "agentId": "main",
       "allowUsers": ["你的QQ号"],
       "enableGroupMessages": true,
       "groupMentionOnly": true

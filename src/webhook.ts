@@ -406,17 +406,12 @@ export async function handleNapCatWebhook(req: IncomingMessage, res: ServerRespo
             const conversationId = isGroup ? `group:${event.group_id}` : `private:${senderId}`;
             const senderName = event.sender?.nickname || senderId;
 
-            // Generate session key based on conversation type
-            // Session format: session:napcat:private:{userId} or session:napcat:group:{groupId}
-            const sessionKey = isGroup 
+            // Generate NapCat base session key by conversation type
+            // Base format: session:napcat:private:{userId} or session:napcat:group:{groupId}
+            const baseSessionKey = isGroup 
                 ? `session:napcat:group:${event.group_id}`
                 : `session:napcat:private:${senderId}`;
-
-            // User requested to use session key as display name for consistency
-            const sessionDisplayName = sessionKey;
-
-            // Log for debugging
-            console.log(`[NapCat] Inbound from ${senderId} (session: ${sessionKey}): ${text.substring(0, 50)}...`);
+            const cfg = runtime.config?.loadConfig?.() || {};
 
             // Resolve route for this message with specific session key
             // Note: OpenClaw SDK ignores the sessionKey param, so we must override it after
@@ -425,7 +420,7 @@ export async function handleNapCatWebhook(req: IncomingMessage, res: ServerRespo
                 conversationId,
                 senderId,
                 text,
-                cfg: runtime.config?.loadConfig?.() || {},
+                cfg,
                 ctx: {},
             });
 
@@ -437,11 +432,25 @@ export async function handleNapCatWebhook(req: IncomingMessage, res: ServerRespo
                 return true;
             }
 
-            // Force our custom session key (OpenClaw SDK doesn't respect the sessionKey param)
+            const configuredAgentId = String(config.agentId || "").trim().toLowerCase();
+            const routeAgentId = String(route.agentId || "").trim().toLowerCase();
+            const effectiveAgentId = configuredAgentId || routeAgentId || "main";
+            const sessionKey = `agent:${effectiveAgentId}:${baseSessionKey}`;
+
+            // User requested to use session key as display name for consistency
+            const sessionDisplayName = sessionKey;
+
+            // Log for debugging
+            console.log(`[NapCat] Inbound from ${senderId} (session: ${sessionKey}): ${text.substring(0, 50)}...`);
+            if (configuredAgentId && configuredAgentId !== routeAgentId) {
+                console.log(`[NapCat] Override route agent by config: ${routeAgentId || "none"} -> ${configuredAgentId}`);
+            }
+
+            // Force our custom session key and configured agent
+            route.agentId = effectiveAgentId;
             route.sessionKey = sessionKey;
 
             // Build ctxPayload using runtime methods
-            const cfg = runtime.config?.loadConfig?.() || {};
             const ctxPayload = {
                 Body: text,
                 RawBody: rawText,
