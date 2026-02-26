@@ -42,6 +42,9 @@ git clone https://github.com/ProperSAMA/openclaw-napcat-plugin.git
         "987654321"
       ],
       "enableGroupMessages": true,
+      "groupSilentMode": [
+        "123456789"
+      ],
       "groupMentionOnly": true,
       "mediaProxyEnabled": true,
       "publicBaseUrl": "http://127.0.0.1:18789",
@@ -68,7 +71,8 @@ git clone https://github.com/ProperSAMA/openclaw-napcat-plugin.git
 | `agentId` | string | 可选，固定将 NapCat 会话绑定到该 OpenClaw agent（如 `main`、`ops`） | `""`（空=按默认路由） |
 | `allowUsers` | string[] | 允许接收消息的 QQ 用户 ID 列表 | `[]` (接收所有) |
 | `enableGroupMessages` | boolean | 是否处理群消息 | `false` |
-| `groupMentionOnly` | boolean | 群消息是否需要 @ 机器人 | `true` |
+| `groupSilentMode` | string[] | 群静默模式启用列表（群号）。命中群会“全部转发给 agent + 未@且非定时任务时拦截回复” | `[]` |
+| `groupMentionOnly` | boolean | 旧行为开关：仅在“当前群不在 `groupSilentMode` 列表”时生效，控制未@是否直接不转发给 agent | `true` |
 | `mediaProxyEnabled` | boolean | 启用 `/napcat/media` 媒体代理（跨设备发图推荐） | `false` |
 | `publicBaseUrl` | string | OpenClaw 对 NapCat 可达的地址（如 `http://127.0.0.1:18789`） | `""` |
 | `mediaProxyToken` | string | 媒体代理可选访问令牌 | `""` |
@@ -76,8 +80,11 @@ git clone https://github.com/ProperSAMA/openclaw-napcat-plugin.git
 
 **群消息说明：**
 - `enableGroupMessages: false`（默认）：完全忽略群消息
-- `enableGroupMessages: true, groupMentionOnly: true`：只有 @ 机器人时才处理
-- `enableGroupMessages: true, groupMentionOnly: false`：处理所有群消息（不推荐）
+- `enableGroupMessages: true, groupSilentMode: ["群号1", "群号2"]`：
+  - 列表命中的群：所有消息都转发给 agent；未@且非定时任务时拦截回复
+  - 列表未命中的群：继续按 `groupMentionOnly` 旧逻辑处理
+- `enableGroupMessages: true, groupSilentMode: [], groupMentionOnly: true`：旧行为，仅 @ 才转发给 agent
+- `enableGroupMessages: true, groupSilentMode: [], groupMentionOnly: false`：处理所有群消息并可直接回复
 
 ## NapCat 配置
 

@@ -73,6 +73,47 @@ function buildNapCatMessageFromReply(
     return mediaSegments.join("\n");
 }
 
+function isScheduledReplyPayload(payload: any): boolean {
+    if (!payload || typeof payload !== "object") return false;
+
+    const source = String(payload.source || "").toLowerCase();
+    const trigger = String(payload.trigger || "").toLowerCase();
+    const replyType = String(payload.replyType || "").toLowerCase();
+
+    const metadata = payload.meta && typeof payload.meta === "object"
+        ? payload.meta
+        : payload.metadata && typeof payload.metadata === "object"
+            ? payload.metadata
+            : payload.extra && typeof payload.extra === "object"
+                ? payload.extra
+                : null;
+
+    const metaSource = String(metadata?.source || "").toLowerCase();
+    const metaTrigger = String(metadata?.trigger || "").toLowerCase();
+    const metaKind = String(metadata?.kind || "").toLowerCase();
+
+    return (
+        payload.isScheduled === true ||
+        payload.scheduled === true ||
+        payload.fromSchedule === true ||
+        payload.fromScheduler === true ||
+        payload.replyOptions?.isScheduled === true ||
+        metadata?.isScheduled === true ||
+        metadata?.scheduled === true ||
+        source === "schedule" ||
+        source === "scheduler" ||
+        trigger === "schedule" ||
+        trigger === "scheduler" ||
+        replyType === "scheduled" ||
+        metaSource === "schedule" ||
+        metaSource === "scheduler" ||
+        metaTrigger === "schedule" ||
+        metaTrigger === "scheduler" ||
+        metaKind === "schedule" ||
+        metaKind === "scheduler"
+    );
+}
+
 function getContentTypeByPath(filePath: string): string {
     const ext = extname(filePath).toLowerCase();
     if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
@@ -329,7 +370,12 @@ export async function handleNapCatWebhook(req: IncomingMessage, res: ServerRespo
 
             // Group message handling
             const enableGroupMessages = config.enableGroupMessages || false;
-            const groupMentionOnly = config.groupMentionOnly !== false; // Default true
+            const silentGroupIds = Array.isArray(config.groupSilentMode)
+                ? config.groupSilentMode.map((id: any) => String(id).trim()).filter(Boolean)
+                : [];
+            const isLegacyGlobalSilentMode = config.groupSilentMode === true;
+            const groupMentionOnly = config.groupMentionOnly !== false; // Legacy default true
+            let isSilentModeForCurrentGroup = false;
             let wasMentioned = !isGroup; // In DMs, we consider it "mentioned"
 
             if (isGroup) {
@@ -342,52 +388,49 @@ export async function handleNapCatWebhook(req: IncomingMessage, res: ServerRespo
                     return true;
                 }
 
-                const botId = event.self_id || config.selfId;
-                if (groupMentionOnly) {
-                    // Check if bot was mentioned
-                    // NapCat sends self_id as the bot's QQ number
-                    if (!botId) {
-                        console.log(`[NapCat] Cannot determine bot ID, ignoring group message`);
-                        res.statusCode = 200;
-                        res.setHeader("Content-Type", "application/json");
-                        res.end('{"status":"ok"}');
-                        return true;
-                    }
+                const groupId = String(event.group_id || "").trim();
+                isSilentModeForCurrentGroup =
+                    silentGroupIds.includes(groupId) ||
+                    (isLegacyGlobalSilentMode && !silentGroupIds.length);
 
+                const botId = event.self_id || config.selfId;
+                let isMentioned = false;
+
+                if (botId) {
                     // Check for bot mention in raw_message
                     // Support two formats:
                     // 1. CQ code format: [CQ:at,qq={botId}] or [CQ:at,qq=all]
                     // 2. Plain text format: @Nickname (botId) or @botId
                     const mentionPatternCQ = new RegExp(`\\[CQ:at,qq=${botId}\\]`, 'i');
                     const allMentionPatternCQ = /\[CQ:at,qq=all\]/i;
-                    
+
                     // Plain text mention patterns: @xxx (123456) or @123456
                     const mentionPatternPlain1 = new RegExp(`@[^\\s]+ \\(${botId}\\)`, 'i');
                     const mentionPatternPlain2 = new RegExp(`@${botId}(?:\\s|$|,)`, 'i');
 
                     const isMentionedCQ = mentionPatternCQ.test(text) || allMentionPatternCQ.test(text);
                     const isMentionedPlain = mentionPatternPlain1.test(text) || mentionPatternPlain2.test(text);
-
-                    if (!isMentionedCQ && !isMentionedPlain) {
-                        console.log(`[NapCat] Ignoring group message (bot not mentioned)`);
-                        res.statusCode = 200;
-                        res.setHeader("Content-Type", "application/json");
-                        res.end('{"status":"ok"}');
-                        return true;
-                    }
-
-                    wasMentioned = true;
-                    console.log(`[NapCat] Bot mentioned in group, processing message`);
+                    isMentioned = isMentionedCQ || isMentionedPlain;
                 } else {
-                    // Check for mention anyway to update wasMentioned
-                    if (botId) {
-                        const mentionPatternCQ = new RegExp(`\\[CQ:at,qq=${botId}\\]`, 'i');
-                        const allMentionPatternCQ = /\[CQ:at,qq=all\]/i;
-                        const mentionPatternPlain1 = new RegExp(`@[^\\s]+ \\(${botId}\\)`, 'i');
-                        const mentionPatternPlain2 = new RegExp(`@${botId}(?:\\s|$|,)`, 'i');
-                        wasMentioned = mentionPatternCQ.test(text) || allMentionPatternCQ.test(text) || 
-                                       mentionPatternPlain1.test(text) || mentionPatternPlain2.test(text);
-                    }
+                    console.log(`[NapCat] Cannot determine bot ID for mention detection`);
+                }
+
+                wasMentioned = isMentioned;
+
+                // Legacy behavior (when per-group silent mode is not enabled for current group):
+                // require mention before forwarding to agent.
+                if (!isSilentModeForCurrentGroup && groupMentionOnly && !wasMentioned) {
+                    console.log(`[NapCat] Ignoring group message (bot not mentioned)`);
+                    res.statusCode = 200;
+                    res.setHeader("Content-Type", "application/json");
+                    res.end('{"status":"ok"}');
+                    return true;
+                }
+
+                if (isSilentModeForCurrentGroup && !wasMentioned) {
+                    console.log(`[NapCat] Group silent mode active for group ${groupId}: forward to agent but mute reply (bot not mentioned)`);
+                } else if (wasMentioned) {
+                    console.log(`[NapCat] Bot mentioned in group, processing message`);
                 }
 
                 // Strip mentions from text for cleaner processing and command detection
@@ -446,15 +489,18 @@ export async function handleNapCatWebhook(req: IncomingMessage, res: ServerRespo
                 console.log(`[NapCat] Override route agent by config: ${routeAgentId || "none"} -> ${configuredAgentId}`);
             }
 
+            // Forward group messages with sender QQ for better identity recognition.
+            const textForAgent = isGroup ? `[QQ:${senderId}] ${text}` : text;
+
             // Force our custom session key and configured agent
             route.agentId = effectiveAgentId;
             route.sessionKey = sessionKey;
 
             // Build ctxPayload using runtime methods
             const ctxPayload = {
-                Body: text,
+                Body: textForAgent,
                 RawBody: rawText,
-                CommandBody: text,
+                CommandBody: textForAgent,
                 From: `napcat:${conversationId}`,
                 To: "me",
                 SessionKey: sessionKey,  // Use our custom session key
@@ -484,6 +530,7 @@ export async function handleNapCatWebhook(req: IncomingMessage, res: ServerRespo
             
             // Store conversationId for reply routing
             const replyTarget = conversationId;
+            const muteUnmentionedGroupReply = isGroup && isSilentModeForCurrentGroup && !wasMentioned;
             
             if (runtime.channel.reply.createReplyDispatcherWithTyping) {
                 console.log("[NapCat] Calling createReplyDispatcherWithTyping...");
@@ -491,8 +538,12 @@ export async function handleNapCatWebhook(req: IncomingMessage, res: ServerRespo
                     responsePrefix: "",
                     responsePrefixContextProvider: () => ({}),
                     humanDelay: 0,
-                    deliver: async (payload) => {
+                    deliver: async (payload: any) => {
                         console.log("[NapCat] Reply to deliver:", JSON.stringify(payload).substring(0, 100));
+                        if (muteUnmentionedGroupReply && !isScheduledReplyPayload(payload)) {
+                            console.log("[NapCat] Group silent mode muted reply (not @ and not scheduled task)");
+                            return;
+                        }
                         // Actually send the message via NapCat API
                         const config = getNapCatConfig();
                         const baseUrl = config.url || "http://127.0.0.1:3000";
@@ -504,7 +555,7 @@ export async function handleNapCatWebhook(req: IncomingMessage, res: ServerRespo
                             console.log("[NapCat] Skip empty reply payload");
                             return;
                         }
-                        const msgPayload = { message };
+                        const msgPayload: any = { message };
                         if (isGroup) msgPayload.group_id = targetId;
                         else msgPayload.user_id = targetId;
                         
@@ -512,7 +563,7 @@ export async function handleNapCatWebhook(req: IncomingMessage, res: ServerRespo
                         await sendToNapCat(`${baseUrl}${endpoint}`, msgPayload);
                         console.log("[NapCat] Reply sent successfully");
                     },
-                    onError: (err, info) => {
+                    onError: (err: any, info: any) => {
                         console.error(`[NapCat] Reply error (${info.kind}):`, err);
                     },
                     onReplyStart: () => {},
@@ -524,8 +575,12 @@ export async function handleNapCatWebhook(req: IncomingMessage, res: ServerRespo
                     responsePrefix: "",
                     responsePrefixContextProvider: () => ({}),
                     humanDelay: 0,
-                    deliver: async (payload) => {
+                    deliver: async (payload: any) => {
                         console.log("[NapCat] Reply to deliver:", JSON.stringify(payload).substring(0, 100));
+                        if (muteUnmentionedGroupReply && !isScheduledReplyPayload(payload)) {
+                            console.log("[NapCat] Group silent mode muted reply (not @ and not scheduled task)");
+                            return;
+                        }
                         // Actually send the message via NapCat API
                         const config = getNapCatConfig();
                         const baseUrl = config.url || "http://127.0.0.1:3000";
@@ -537,7 +592,7 @@ export async function handleNapCatWebhook(req: IncomingMessage, res: ServerRespo
                             console.log("[NapCat] Skip empty reply payload");
                             return;
                         }
-                        const msgPayload = { message };
+                        const msgPayload: any = { message };
                         if (isGroup) msgPayload.group_id = targetId;
                         else msgPayload.user_id = targetId;
                         
@@ -545,7 +600,7 @@ export async function handleNapCatWebhook(req: IncomingMessage, res: ServerRespo
                         await sendToNapCat(`${baseUrl}${endpoint}`, msgPayload);
                         console.log("[NapCat] Reply sent successfully");
                     },
-                    onError: (err, info) => {
+                    onError: (err: any, info: any) => {
                         console.error(`[NapCat] Reply error (${info.kind}):`, err);
                     },
                 });

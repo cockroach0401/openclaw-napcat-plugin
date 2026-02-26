@@ -112,13 +112,20 @@ export const napcatPlugin = {
             enableGroupMessages: {
                 type: "boolean",
                 title: "Enable Group Messages",
-                description: "When enabled, process group messages (requires mention to trigger)",
+                description: "When enabled, process group messages",
                 default: false
+            },
+            groupSilentMode: {
+                type: "array",
+                items: { type: "string" },
+                title: "Group Silent Mode Group IDs",
+                description: "Group IDs where silent mode is enabled: always forward to agent, but block reply delivery unless bot is mentioned (@)",
+                default: []
             },
             groupMentionOnly: {
                 type: "boolean",
-                title: "Require Mention in Group",
-                description: "In group chats, only respond when the bot is mentioned (@)",
+                title: "Require Mention in Group (Legacy)",
+                description: "Legacy behavior: in group chats, require @ mention before forwarding to agent",
                 default: true
             },
             mediaProxyEnabled: {
