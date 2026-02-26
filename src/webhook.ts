@@ -448,6 +448,30 @@ export async function handleNapCatWebhook(req: IncomingMessage, res: ServerRespo
             // We prefix with type to help outbound routing
             const conversationId = isGroup ? `group:${event.group_id}` : `private:${senderId}`;
             const senderName = event.sender?.nickname || senderId;
+            const ownerIdCandidates = [
+                config.ownerId,
+                config.ownerQQ,
+                config.ownerUin,
+                config.masterQQ,
+                config.masterUin,
+                ...(Array.isArray(config.ownerIds) ? config.ownerIds : []),
+                ...(Array.isArray(config.ownerQQs) ? config.ownerQQs : []),
+                ...(Array.isArray(config.ownerUins) ? config.ownerUins : []),
+                ...(Array.isArray(config.superUsers) ? config.superUsers : []),
+                ...(Array.isArray(config.superusers) ? config.superusers : []),
+            ]
+                .map((id: any) => String(id || "").trim())
+                .filter(Boolean);
+            const senderIsOwner =
+                event.sender?.is_owner === true ||
+                event.is_owner === true ||
+                ownerIdCandidates.includes(senderId);
+            const senderMetaName = event.sender?.nickname ? `${event.sender.nickname} (${senderId})` : senderId;
+            const senderMeta = {
+                label: senderId,
+                name: senderMetaName,
+                is_owner: senderIsOwner,
+            };
 
             // Generate NapCat base session key by conversation type
             // Base format: session:napcat:private:{userId} or session:napcat:group:{groupId}
@@ -516,6 +540,7 @@ export async function handleNapCatWebhook(req: IncomingMessage, res: ServerRespo
                 ConversationLabel: sessionKey,
                 SenderName: senderName,
                 SenderId: senderId,
+                Sender: senderMeta,
                 Provider: "napcat",
                 Surface: "napcat",
                 MessageSid: messageId,
