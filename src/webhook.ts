@@ -448,29 +448,136 @@ export async function handleNapCatWebhook(req: IncomingMessage, res: ServerRespo
             // We prefix with type to help outbound routing
             const conversationId = isGroup ? `group:${event.group_id}` : `private:${senderId}`;
             const senderName = event.sender?.nickname || senderId;
-            const ownerIdCandidates = [
+            const parseBoolLoose = (value: any): boolean => {
+                if (typeof value === "boolean") return value;
+                if (typeof value === "number") return value === 1;
+                if (typeof value === "string") {
+                    const normalized = value.trim().toLowerCase();
+                    return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
+                }
+                return false;
+            };
+            const parseIdList = (value: any): string[] => {
+                if (Array.isArray(value)) return value.flatMap((item) => parseIdList(item));
+                if (value === null || value === undefined) return [];
+                if (typeof value === "number" || typeof value === "bigint") return [String(value)];
+                if (typeof value === "string") {
+                    const raw = value.trim();
+                    if (!raw) return [];
+                    if ((raw.startsWith("[") && raw.endsWith("]")) || (raw.startsWith("{") && raw.endsWith("}"))) {
+                        try {
+                            return parseIdList(JSON.parse(raw));
+                        } catch {
+                            // Ignore JSON parse failures and fallback to split.
+                        }
+                    }
+                    return raw
+                        .split(/[\s,;|]+/)
+                        .map((item) => item.trim())
+                        .filter(Boolean);
+                }
+                if (typeof value === "object") {
+                    return [
+                        ...parseIdList(value.id),
+                        ...parseIdList(value.qq),
+                        ...parseIdList(value.uin),
+                        ...parseIdList(value.user_id),
+                    ];
+                }
+                return [];
+            };
+
+            const ownerConfigInputs = [
                 config.ownerId,
                 config.ownerQQ,
                 config.ownerUin,
+                config.ownerIds,
+                config.ownerQQs,
+                config.ownerUins,
+                config.owner,
+                config.owners,
+                config.master,
+                config.masters,
                 config.masterQQ,
                 config.masterUin,
-                ...(Array.isArray(config.ownerIds) ? config.ownerIds : []),
-                ...(Array.isArray(config.ownerQQs) ? config.ownerQQs : []),
-                ...(Array.isArray(config.ownerUins) ? config.ownerUins : []),
-                ...(Array.isArray(config.superUsers) ? config.superUsers : []),
-                ...(Array.isArray(config.superusers) ? config.superusers : []),
-            ]
-                .map((id: any) => String(id || "").trim())
-                .filter(Boolean);
-            const senderIsOwner =
-                event.sender?.is_owner === true ||
-                event.is_owner === true ||
-                ownerIdCandidates.includes(senderId);
+                config.superUser,
+                config.superUsers,
+                config.superusers,
+                config.botOwner,
+                config.botOwners,
+                config.onebot?.owner,
+                config.onebot?.owners,
+                config.onebot?.superUser,
+                config.onebot?.superUsers,
+                config.onebot?.superusers,
+                config.napcat?.owner,
+                config.napcat?.owners,
+                config.napcat?.superUser,
+                config.napcat?.superUsers,
+                config.napcat?.superusers,
+            ];
+            const adminConfigInputs = [
+                config.adminId,
+                config.adminQQ,
+                config.adminUin,
+                config.adminIds,
+                config.adminQQs,
+                config.adminUins,
+                config.admin,
+                config.admins,
+                config.manager,
+                config.managers,
+                config.moderator,
+                config.moderators,
+                config.onebot?.admin,
+                config.onebot?.admins,
+                config.onebot?.manager,
+                config.onebot?.managers,
+                config.napcat?.admin,
+                config.napcat?.admins,
+                config.napcat?.manager,
+                config.napcat?.managers,
+            ];
+            const hasExplicitOwnerConfig = ownerConfigInputs.some((value) => parseIdList(value).length > 0);
+
+            const ownerIdCandidates = Array.from(
+                new Set(
+                    [
+                        ...ownerConfigInputs,
+                        // 兜底：未配置 owner 字段时，且 allowUsers 仅 1 人，则视为机器人主人
+                        !hasExplicitOwnerConfig && Array.isArray(config.allowUsers) && config.allowUsers.length === 1
+                            ? config.allowUsers
+                            : [],
+                    ].flatMap((item) => parseIdList(item))
+                )
+            );
+            const adminIdCandidates = Array.from(new Set(adminConfigInputs.flatMap((item) => parseIdList(item))));
+
+            const senderIsOwnerFromEvent =
+                parseBoolLoose(event.sender?.is_owner) ||
+                parseBoolLoose(event.is_owner) ||
+                parseBoolLoose(event.sender?.isOwner) ||
+                parseBoolLoose(event.isOwner) ||
+                parseBoolLoose(event.sender?.is_master) ||
+                parseBoolLoose(event.is_master) ||
+                parseBoolLoose(event.sender?.isMaster) ||
+                parseBoolLoose(event.isMaster);
+            const senderRole = String(event.sender?.role || "").trim().toLowerCase();
+            const senderIsAdminFromEvent =
+                parseBoolLoose(event.sender?.is_admin) ||
+                parseBoolLoose(event.is_admin) ||
+                parseBoolLoose(event.sender?.isAdmin) ||
+                parseBoolLoose(event.isAdmin) ||
+                senderRole === "admin";
+
+            const senderIsOwner = senderIsOwnerFromEvent || ownerIdCandidates.includes(senderId);
+            const senderIsAdmin = senderIsOwner || senderIsAdminFromEvent || adminIdCandidates.includes(senderId);
             const senderMetaName = event.sender?.nickname ? `${event.sender.nickname} (${senderId})` : senderId;
             const senderMeta = {
                 label: senderId,
                 name: senderMetaName,
                 is_owner: senderIsOwner,
+                is_admin: senderIsAdmin,
             };
 
             // Generate NapCat base session key by conversation type
