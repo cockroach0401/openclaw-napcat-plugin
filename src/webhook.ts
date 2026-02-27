@@ -887,6 +887,27 @@ export async function handleNapCatWebhook(req: IncomingMessage, res: ServerRespo
 
             console.log("[NapCat] Dispatcher created, methods:", Object.keys(dispatcher));
 
+            // Send immediate "收到" acknowledgment for non-main agents (tool/acm)
+            // then dispatch asynchronously so the user knows their request is being processed
+            const isNonMainAgent = effectiveAgentId !== "main";
+            if (isNonMainAgent) {
+                const ackConfig = getNapCatConfig();
+                const ackBaseUrl = ackConfig.url || "http://127.0.0.1:3000";
+                const ackIsGroup = conversationId.startsWith("group:");
+                const ackTargetId = ackIsGroup ? conversationId.replace("group:", "") : conversationId.replace("private:", "");
+                const ackEndpoint = ackIsGroup ? "/send_group_msg" : "/send_private_msg";
+                const agentLabel = effectiveAgentId === "acm" ? "深度推理" : effectiveAgentId === "tool" ? "工具搜索" : effectiveAgentId;
+                const ackMessage = `收到，正在调用 ${agentLabel} 处理，请稍候...`;
+                const ackPayload: any = { message: ackMessage };
+                if (ackIsGroup) ackPayload.group_id = ackTargetId;
+                else ackPayload.user_id = ackTargetId;
+
+                // Send ack without blocking the dispatch (fire-and-forget with error logging)
+                sendToNapCat(`${ackBaseUrl}${ackEndpoint}`, ackPayload)
+                    .then(() => console.log(`[NapCat] Ack sent for ${effectiveAgentId} agent`))
+                    .catch((err) => console.error(`[NapCat] Ack send failed:`, err));
+            }
+
             // Dispatch the message to OpenClaw
             await runtime.channel.reply.dispatchReplyFromConfig({
                 ctx: ctxPayload,
