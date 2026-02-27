@@ -3,6 +3,7 @@ import { createReadStream } from "node:fs";
 import { appendFile, mkdir, stat } from "node:fs/promises";
 import { dirname, extname, resolve } from "node:path";
 import { getNapCatRuntime, getNapCatConfig } from "./runtime.js";
+import { routeMessage } from "./router/index.js";
 
 // Group name cache removed
 
@@ -112,6 +113,38 @@ function isScheduledReplyPayload(payload: any): boolean {
         metaKind === "schedule" ||
         metaKind === "scheduler"
     );
+}
+
+function shouldBypassSilentModeForAgent(payload: any, currentAgentId: string): boolean {
+    if (!payload || typeof payload !== "object") return false;
+
+    const normalizedCurrentAgentId = String(currentAgentId || "").trim().toLowerCase();
+    if (!normalizedCurrentAgentId || normalizedCurrentAgentId === "main") return false;
+
+    const metadata = payload.meta && typeof payload.meta === "object"
+        ? payload.meta
+        : payload.metadata && typeof payload.metadata === "object"
+            ? payload.metadata
+            : payload.extra && typeof payload.extra === "object"
+                ? payload.extra
+                : null;
+
+    const payloadAgentId = String(payload.agentId || "").trim().toLowerCase();
+    const metaAgentId = String(metadata?.agentId || "").trim().toLowerCase();
+    const source = String(payload.source || "").trim().toLowerCase();
+    const metaSource = String(metadata?.source || "").trim().toLowerCase();
+
+    const candidateAgentId = payloadAgentId || metaAgentId;
+    if (candidateAgentId && candidateAgentId !== normalizedCurrentAgentId) return false;
+
+    if (payload.bypassSilentMode === true) return true;
+    if (payload.replyOptions?.bypassSilentMode === true) return true;
+    if (metadata?.bypassSilentMode === true) return true;
+
+    if (candidateAgentId === normalizedCurrentAgentId) return true;
+    if (source === normalizedCurrentAgentId || metaSource === normalizedCurrentAgentId) return true;
+
+    return false;
 }
 
 function getContentTypeByPath(filePath: string): string {
@@ -675,7 +708,7 @@ export async function handleNapCatWebhook(req: IncomingMessage, res: ServerRespo
 
             // Resolve route for this message with specific session key
             // Note: OpenClaw SDK ignores the sessionKey param, so we must override it after
-            const route = await runtime.channel.routing.resolveAgentRoute({
+            const resolvedRoute = await runtime.channel.routing.resolveAgentRoute({
                 channel: "napcat",
                 conversationId,
                 senderId,
@@ -683,18 +716,21 @@ export async function handleNapCatWebhook(req: IncomingMessage, res: ServerRespo
                 cfg,
                 ctx: {},
             });
+            const route = (resolvedRoute && typeof resolvedRoute === "object") ? resolvedRoute : {};
 
-            if (!route?.agentId) {
-                console.log("[NapCat] No route found for message, ignoring");
-                res.statusCode = 200;
-                res.setHeader("Content-Type", "application/json");
-                res.end('{"status":"ok"}');
-                return true;
-            }
+            const enableRouting = parseBoolLoose(config.enableRouting ?? true);
+            const routeDecision = enableRouting
+                ? await routeMessage(text, { isGroup, senderId, config, event })
+                : null;
 
             const configuredAgentId = String(config.agentId || "").trim().toLowerCase();
-            const routeAgentId = String(route.agentId || "").trim().toLowerCase();
-            const effectiveAgentId = configuredAgentId || routeAgentId || "main";
+            const routeDecisionAgentId = String(routeDecision?.agentId || "").trim().toLowerCase();
+            const routeAgentId = String(route?.agentId || "").trim().toLowerCase();
+            const effectiveAgentId =
+                configuredAgentId ||
+                routeDecisionAgentId ||
+                routeAgentId ||
+                "main";
             const sessionKey = `agent:${effectiveAgentId}:${baseSessionKey}`;
 
             // User requested to use session key as display name for consistency
@@ -702,9 +738,11 @@ export async function handleNapCatWebhook(req: IncomingMessage, res: ServerRespo
 
             // Log for debugging
             console.log(`[NapCat] Inbound from ${senderId} (session: ${sessionKey}): ${text.substring(0, 50)}...`);
-            if (configuredAgentId && configuredAgentId !== routeAgentId) {
-                console.log(`[NapCat] Override route agent by config: ${routeAgentId || "none"} -> ${configuredAgentId}`);
+            if (configuredAgentId && configuredAgentId !== routeDecisionAgentId && configuredAgentId !== routeAgentId) {
+                const overrideFrom = routeDecisionAgentId || routeAgentId || "none";
+                console.log(`[NapCat] Override route agent by config: ${overrideFrom} -> ${configuredAgentId}`);
             }
+            console.log(`[NapCat] Route: agentId=${effectiveAgentId}, reason=${routeDecision?.reason || "default"}`);
 
             if (isGroup) {
                 const groupIdForLog = String(event.group_id || "").trim();
@@ -762,6 +800,8 @@ export async function handleNapCatWebhook(req: IncomingMessage, res: ServerRespo
             // Store conversationId for reply routing
             const replyTarget = conversationId;
             const muteUnmentionedGroupReply = isGroup && isSilentModeForCurrentGroup && !wasMentioned;
+            const shouldBypassSilentMode = (payload: any) =>
+                isScheduledReplyPayload(payload) || shouldBypassSilentModeForAgent(payload, effectiveAgentId);
             
             if (runtime.channel.reply.createReplyDispatcherWithTyping) {
                 console.log("[NapCat] Calling createReplyDispatcherWithTyping...");
@@ -771,8 +811,8 @@ export async function handleNapCatWebhook(req: IncomingMessage, res: ServerRespo
                     humanDelay: 0,
                     deliver: async (payload: any) => {
                         console.log("[NapCat] Reply to deliver:", JSON.stringify(payload).substring(0, 100));
-                        if (muteUnmentionedGroupReply && !isScheduledReplyPayload(payload)) {
-                            console.log("[NapCat] Group silent mode muted reply (not @ and not scheduled task)");
+                        if (muteUnmentionedGroupReply && !shouldBypassSilentMode(payload)) {
+                            console.log("[NapCat] Group silent mode muted reply (not @ and not bypass payload)");
                             return;
                         }
                         // Actually send the message via NapCat API
@@ -808,8 +848,8 @@ export async function handleNapCatWebhook(req: IncomingMessage, res: ServerRespo
                     humanDelay: 0,
                     deliver: async (payload: any) => {
                         console.log("[NapCat] Reply to deliver:", JSON.stringify(payload).substring(0, 100));
-                        if (muteUnmentionedGroupReply && !isScheduledReplyPayload(payload)) {
-                            console.log("[NapCat] Group silent mode muted reply (not @ and not scheduled task)");
+                        if (muteUnmentionedGroupReply && !shouldBypassSilentMode(payload)) {
+                            console.log("[NapCat] Group silent mode muted reply (not @ and not bypass payload)");
                             return;
                         }
                         // Actually send the message via NapCat API

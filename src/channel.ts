@@ -102,6 +102,43 @@ export const napcatPlugin = {
                 description: "Optional: force all NapCat inbound sessions to use this OpenClaw agent ID",
                 default: ""
             },
+            enableRouting: {
+                type: "boolean",
+                title: "Enable Plugin-side Routing",
+                description: "Enable two-layer routing (rules first, then optional LLM classifier)",
+                default: true
+            },
+            enableLLMClassifier: {
+                type: "boolean",
+                title: "Enable LLM Classifier",
+                description: "Use new-api LLM routing when rule classifier cannot decide",
+                default: true
+            },
+            llmClassifierTimeout: {
+                type: "number",
+                title: "LLM Classifier Timeout (ms)",
+                description: "Timeout for LLM classifier request",
+                default: 3000,
+                minimum: 500
+            },
+            llmClassifierModel: {
+                type: "string",
+                title: "LLM Classifier Model",
+                description: "Model name used for routing classification",
+                default: "sat/gpt-5.2-low"
+            },
+            newApiBaseUrl: {
+                type: "string",
+                title: "new-api Base URL",
+                description: "Optional override for new-api base URL; fallback to env NEW_API_BASE",
+                default: ""
+            },
+            newApiKey: {
+                type: "string",
+                title: "new-api Key",
+                description: "Optional override for new-api API key; fallback to env NEW_API_KEY",
+                default: ""
+            },
             allowUsers: {
                 type: "array",
                 items: { type: "string" },
