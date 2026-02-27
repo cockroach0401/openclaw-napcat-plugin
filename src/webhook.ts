@@ -890,7 +890,7 @@ export async function handleNapCatWebhook(req: IncomingMessage, res: ServerRespo
             // Send immediate "收到" acknowledgment for non-main agents (tool/acm)
             // then dispatch asynchronously so the user knows their request is being processed
             const isNonMainAgent = effectiveAgentId !== "main";
-            if (isNonMainAgent) {
+            if (isNonMainAgent && !muteUnmentionedGroupReply) {
                 const ackConfig = getNapCatConfig();
                 const ackBaseUrl = ackConfig.url || "http://127.0.0.1:3000";
                 const ackIsGroup = conversationId.startsWith("group:");
