@@ -77,7 +77,8 @@ git clone https://github.com/ProperSAMA/openclaw-napcat-plugin.git
 | `allowUsers` | string[] | 允许接收消息的 QQ 用户 ID 列表 | `[]` (接收所有) |
 | `enableGroupMessages` | boolean | 是否处理群消息 | `false` |
 | `groupSilentMode` | string[] | 群静默模式启用列表（群号）。命中群会"全部转发给 agent + 未@且非定时任务时拦截回复" | `[]` |
-| `groupMentionOnly` | boolean | 旧行为开关：仅在"当前群不在 `groupSilentMode` 列表"时生效，控制未@是否直接不转发给 agent | `true` |
+| `groupMentionOnly` | boolean | (已弃用)旧行为开关：仅在"当前群不在 `groupSilentMode` 列表"时生效，控制未@是否直接不转发给 agent | `true` |
+| `groupMentionOnlyGroups` | string[] | （已弃用）历史上用于“只对部分群启用 `groupMentionOnly`”。请使用 `groupSilentMode` + `groupMentionOnly` 或在下游 Skill/路由中做更细粒度控制 | - |
 | `mediaProxyEnabled` | boolean | 启用 `/napcat/media` 媒体代理（跨设备发图推荐） | `false` |
 | `publicBaseUrl` | string | OpenClaw 对 NapCat 可达的地址（如 `http://127.0.0.1:18789`） | `""` |
 | `mediaProxyToken` | string | 媒体代理可选访问令牌 | `""` |

@@ -353,8 +353,41 @@ export async function handleNapCatWebhook(req: IncomingMessage, res: ServerRespo
             const rawText = event.raw_message || "";
             let text = rawText;
 
+            const parseSimpleIdList = (value: any): string[] => {
+                if (Array.isArray(value)) {
+                    return value
+                        .flatMap((item) => parseSimpleIdList(item))
+                        .map((item) => String(item).trim())
+                        .filter(Boolean);
+                }
+                if (value === null || value === undefined) return [];
+                if (typeof value === "number" || typeof value === "bigint") return [String(value)];
+                if (typeof value === "string") {
+                    const raw = value.trim();
+                    if (!raw) return [];
+                    if ((raw.startsWith("[") && raw.endsWith("]")) || (raw.startsWith("{") && raw.endsWith("}"))) {
+                        try {
+                            return parseSimpleIdList(JSON.parse(raw));
+                        } catch {
+                            // Ignore JSON parse failures and fallback to split.
+                        }
+                    }
+                    return raw
+                        .split(/[\s,;|]+/)
+                        .map((item) => item.trim())
+                        .filter(Boolean);
+                }
+                if (typeof value === "object") {
+                    return parseSimpleIdList((value as any).id)
+                        .concat(parseSimpleIdList((value as any).qq))
+                        .concat(parseSimpleIdList((value as any).uin))
+                        .concat(parseSimpleIdList((value as any).user_id));
+                }
+                return [];
+            };
+
             // Get allowUsers from config
-            const allowUsers = config.allowUsers || [];
+            const allowUsers = parseSimpleIdList(config.allowUsers);
             const isAllowUser = allowUsers.includes(senderId);
 
             // Check allowlist logic
@@ -370,11 +403,18 @@ export async function handleNapCatWebhook(req: IncomingMessage, res: ServerRespo
 
             // Group message handling
             const enableGroupMessages = config.enableGroupMessages || false;
-            const silentGroupIds = Array.isArray(config.groupSilentMode)
-                ? config.groupSilentMode.map((id: any) => String(id).trim()).filter(Boolean)
-                : [];
+            const silentGroupIds = parseSimpleIdList(config.groupSilentMode);
             const isLegacyGlobalSilentMode = config.groupSilentMode === true;
-            const groupMentionOnly = config.groupMentionOnly !== false; // Legacy default true
+
+            // Legacy default true: require @ mention in group chats (unless groupSilentMode hits).
+            const groupMentionOnly = config.groupMentionOnly !== false;
+
+            // Optional per-group override: if set (non-empty), only these groups require @ when groupMentionOnly is true.
+            const groupMentionOnlyGroups = parseSimpleIdList(
+                config.groupMentionOnlyGroups ??
+                    config.groupMentionOnlyGroupIds ??
+                    config.mentionOnlyGroups
+            );
             let isSilentModeForCurrentGroup = false;
             let wasMentioned = !isGroup; // In DMs, we consider it "mentioned"
 
@@ -419,7 +459,11 @@ export async function handleNapCatWebhook(req: IncomingMessage, res: ServerRespo
 
                 // Legacy behavior (when per-group silent mode is not enabled for current group):
                 // require mention before forwarding to agent.
-                if (!isSilentModeForCurrentGroup && groupMentionOnly && !wasMentioned) {
+                const shouldRequireMention =
+                    groupMentionOnly &&
+                    (groupMentionOnlyGroups.length === 0 || groupMentionOnlyGroups.includes(groupId));
+
+                if (!isSilentModeForCurrentGroup && shouldRequireMention && !wasMentioned) {
                     console.log(`[NapCat] Ignoring group message (bot not mentioned)`);
                     res.statusCode = 200;
                     res.setHeader("Content-Type", "application/json");
@@ -572,6 +616,48 @@ export async function handleNapCatWebhook(req: IncomingMessage, res: ServerRespo
 
             const senderIsOwner = senderIsOwnerFromEvent || ownerIdCandidates.includes(senderId);
             const senderIsAdmin = senderIsOwner || senderIsAdminFromEvent || adminIdCandidates.includes(senderId);
+
+            // Command authorization strategy (most-specific wins):
+            // 1) explicit commandAuthorizedUsers list
+            // 2) owner/admin (if any owner/admin config exists)
+            // 3) allowUsers (if configured)
+            // 4) fallback allow all (backward compatible)
+            const commandAuthConfigInputs = [
+                config.commandAuthorizedUsers,
+                config.commandAllowUsers,
+                config.commandUsers,
+                config.napcat?.commandAuthorizedUsers,
+                config.onebot?.commandAuthorizedUsers,
+            ];
+            const commandAuthorizedCandidates = Array.from(
+                new Set(commandAuthConfigInputs.flatMap((item) => parseIdList(item)))
+            );
+            const hasExplicitOwnerOrAdminConfig = ownerIdCandidates.length > 0 || adminIdCandidates.length > 0;
+
+            let computedCommandAuthorized = true;
+            let commandAuthSource = "fallback_true";
+
+            if (commandAuthorizedCandidates.length > 0) {
+                computedCommandAuthorized = commandAuthorizedCandidates.includes(senderId);
+                commandAuthSource = "commandAuthorizedUsers";
+            } else if (hasExplicitOwnerOrAdminConfig) {
+                computedCommandAuthorized = senderIsOwner || senderIsAdmin;
+                commandAuthSource = "owner_admin";
+            } else if (allowUsers.length > 0) {
+                computedCommandAuthorized = isAllowUser;
+                commandAuthSource = "allowUsers";
+            }
+
+            // Diagnostic auth log (avoid leaking full config; only counts and booleans)
+            console.log(
+                `[NapCat] Auth diagnostics: sender=${senderId} ` +
+                `isAllowUser=${isAllowUser} allowUsersCount=${allowUsers.length} ` +
+                `ownerCandidates=${ownerIdCandidates.length} adminCandidates=${adminIdCandidates.length} ` +
+                `senderIsOwner=${senderIsOwner} senderIsAdmin=${senderIsAdmin} ` +
+                `commandAuthCandidates=${commandAuthorizedCandidates.length} ` +
+                `CommandAuthorized=${computedCommandAuthorized} source=${commandAuthSource}`
+            );
+
             const senderMetaName = event.sender?.nickname ? `${event.sender.nickname} (${senderId})` : senderId;
             const senderMeta = {
                 label: senderId,
@@ -620,6 +706,16 @@ export async function handleNapCatWebhook(req: IncomingMessage, res: ServerRespo
                 console.log(`[NapCat] Override route agent by config: ${routeAgentId || "none"} -> ${configuredAgentId}`);
             }
 
+            if (isGroup) {
+                const groupIdForLog = String(event.group_id || "").trim();
+                console.log(
+                    `[NapCat] Group diagnostics: groupId=${groupIdForLog} ` +
+                    `enableGroupMessages=${enableGroupMessages} ` +
+                    `isSilentModeForCurrentGroup=${isSilentModeForCurrentGroup} ` +
+                    `groupMentionOnly=${groupMentionOnly} wasMentioned=${wasMentioned}`
+                );
+            }
+
             // Forward group messages with sender QQ for better identity recognition.
             const textForAgent = isGroup ? `[QQ:${senderId}] ${text}` : text;
 
@@ -652,7 +748,10 @@ export async function handleNapCatWebhook(req: IncomingMessage, res: ServerRespo
                 Surface: "napcat",
                 MessageSid: messageId,
                 WasMentioned: wasMentioned,
-                CommandAuthorized: true,
+
+                CommandAuthorized: computedCommandAuthorized,
+                CommandAuthSource: commandAuthSource,
+
                 OriginatingChannel: "napcat",
                 OriginatingTo: conversationId,
             };
